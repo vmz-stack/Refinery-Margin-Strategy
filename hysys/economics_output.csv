@@ -1,0 +1,22 @@
+category,item,value,units,notes
+Summary,Total Capital Cost,3625742.82,USD,HYSYS Activated Economics estimate
+Summary,Total Operating Cost,1383562.55,USD/year,Annual OPEX
+Summary,Total Utilities Cost,72683.33,USD/year,Annual utility cost
+Summary,Equipment Cost,447100.00,USD,Bare equipment cost
+Summary,Total Installed Cost,2176400.00,USD,Installed cost including bulk materials
+Utilities,Electricity,75.56,kW,Power consumption
+Utilities,Electricity Cost,5.856,USD/h,At standard electricity rate
+Utilities,Cooling Water,0.0203,MMGAL/h,Condenser cooling water
+Utilities,Cooling Water Cost,2.436,USD/h,At standard cooling water rate
+Utilities,Total Utility Cost,8.29,USD/h,Electricity + Cooling Water
+Derived,Crude Feed Rate,9336,kg/h,HYSYS simulation basis
+Derived,Crude Density,790.2,kg/m3,WTI Light at 15C (ExxonMobil assay)
+Derived,Crude Rate m3/h,11.81,m3/h,Mass flow / density
+Derived,Crude Rate bbl/h,74.3,bbl/h,At 6.2898 bbl/m3
+Derived,Utility Cost per bbl,0.112,USD/bbl,Total utility cost / crude rate in bbl/h
+Unit Operations,V-100 PreFlash Separator,27700,USD equipment,182700 installed
+Unit Operations,Crude Heater,27400,USD equipment,236500 installed
+Unit Operations,T-100 Atmospheric Column,392000,USD equipment,1757200 installed
+Unit Operations,Kerosene SS,39900,USD equipment,229500 installed
+Unit Operations,Diesel SS,39900,USD equipment,230100 installed
+Unit Operations,AGO SS,39900,USD equipment,230400 installed

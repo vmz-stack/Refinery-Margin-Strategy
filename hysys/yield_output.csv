@@ -1,0 +1,9 @@
+stream,mass_flow_kg_h,temperature_C,pressure_kPa,vapour_fraction,yield_fraction,notes
+Raw Crude,9336,25.0,200.0,0.3154,1.0000,Feed stream (basis)
+Off Gas,268.1,40.0,120.0,1.0000,0.0287,Light ends overhead vapour
+Naphtha,319.7,40.0,120.0,0.0000,0.0342,Gasoline proxy → RB=F
+Waste Water,435.0,40.0,120.0,0.0000,0.0466,Steam condensate (excluded from yield basis)
+Kerosene,1096.0,240.0,143.7,0.0000,0.1174,Jet fuel cut
+Diesel,1142.0,235.1,167.4,0.0000,0.1223,Heating oil proxy → HO=F
+AGO,1172.0,272.1,182.2,0.0000,0.1255,Atmospheric gas oil
+Residue,5353.0,327.0,200.0,0.0000,0.5733,Atmospheric residue
