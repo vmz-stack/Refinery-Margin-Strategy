@@ -32,7 +32,7 @@ This gives the strategy a **physical basis**: the spread mean-reverts because re
 
 ### Flowsheet Topology
 
-An atmospheric crude distillation unit (CDU) was built from scratch in Aspen HYSYS V11 using the Peng-Robinson equation of state and a manually characterised WTI Light crude assay sourced from ExxonMobil's published assay library.
+An atmospheric crude distillation unit (CDU) was built from scratch in Aspen HYSYS V15 using the Peng-Robinson equation of state and a manually characterised WTI Light crude assay sourced from ExxonMobil's published assay library.
 
 ### Crude Assay
 
