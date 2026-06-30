@@ -209,11 +209,11 @@ crack_321 = (2/3) * RBOB * 42 + (1/3) * HO * 42 - WTI
 
 | Parameter | Value |
 |-----------|-------|
-| θ (mean reversion speed) | — |
-| μ (long-run mean, $/bbl) | — |
-| σ (volatility) | — |
-| Half-life (trading days) | — |
-| Selected entry threshold | — |
+| θ (mean reversion speed) | 0.0321 |
+| μ (long-run mean, $/bbl) | 3.0897 |
+| σ (volatility) | 0.4479 |
+| Half-life (trading days) | 21.6 |
+| Selected entry threshold | True |
 
 ---
 
