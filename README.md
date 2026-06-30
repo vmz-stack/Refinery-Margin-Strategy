@@ -1,6 +1,6 @@
 # Physically-Grounded Crack Spread Trading Strategy
 
-> A mean-reversion statistical arbitrage strategy on refinery crack spreads, where product yield weights are derived from an Aspen HYSYS atmospheric crude distillation simulation rather than the generic 3:2:1 textbook ratio.
+> A mean-reversion statistical arbitrage strategy on refinery product spreads, where the tradeable spread weighting is derived from an Aspen HYSYS atmospheric crude distillation simulation rather than the generic 3:2:1 textbook ratio. Benchmarked out-of-sample against the standard 3:2:1 crack spread.
 
 ---
 
@@ -15,12 +15,32 @@ Crack Spread = (2/3 × Gasoline + 1/3 × Heating Oil) − Crude
 This project uses this instead:
 
 ```python
-Margin = (yield_naphtha × RBOB × 42) + (yield_diesel × HO × 42) − WTI − utility_cost_per_bbl
+Spread = (yield_naphtha × RBOB × 42) + (yield_diesel × HO × 42) − (priced_yield_fraction × WTI) − utility_cost_per_bbl
 ```
 
 Where `yield_naphtha = 0.0342` and `yield_diesel = 0.1223` come directly from a converged Aspen HYSYS atmospheric CDU simulation of a real WTI Light crude assay (ExxonMobil EMTEC, Reference WTIL220Y, 2020) — not assumed from a textbook. The utility cost per barrel ($0.112/bbl) comes from the HYSYS Activated Economics module.
 
-This gives the strategy a **physical basis**: the spread mean-reverts because refinery economics are anchored to real process thermodynamics and capital constraints, not because of a statistical artefact. No other candidate on a quant finance application pile has a CDU simulation behind their crack spread model.
+This gives the strategy a **physical basis**: the spread mean-reverts because refinery economics are anchored to real process thermodynamics and capital constraints, not because of a statistical artefact. The strategy is benchmarked out-of-sample against the generic 3:2:1 spread to test whether this physically-derived weighting actually improves risk-adjusted performance — not just that it is conceptually interesting.
+
+---
+
+## Methodology Note — Partial Product Spread, Not Full Refinery Margin
+
+The HYSYS simulation produces a full product slate from the WTI Light crude assay:
+
+| Product | Yield % | Liquid daily futures available? |
+|---------|---------|----------------------------------|
+| Naphtha  | 3.4%  | Yes — RBOB (`RB=F`) |
+| Kerosene | 11.7% | No |
+| Diesel   | 12.2% | Yes — Heating Oil (`HO=F`) |
+| AGO      | 12.6% | No |
+| Residue  | 57.3% | No |
+
+Kerosene, AGO, and residue have no equivalent liquid, exchange-traded daily futures series on Yahoo Finance. Rather than invent a discount-to-WTI assumption to price them synthetically — which would introduce an unverified number and undermine the real-data premise of this project — **this strategy deliberately prices only the naphtha and diesel revenue streams**, which together represent 15.65% of the barrel.
+
+To keep the economics internally consistent, the crude cost charged in the spread formula is scaled proportionally to this priced fraction (`priced_yield_fraction = 0.1565`), not the full barrel price. This avoids subtracting full crude cost while only crediting a fraction of the output — the original flaw in an earlier version of this formula, caught during mentor review (see Acknowledgements).
+
+All seven HYSYS product streams remain documented in `hysys/yield_output.csv` as evidence of the full simulation — only the tradeable subset is used in the pricing formula.
 
 ---
 
@@ -32,7 +52,7 @@ This gives the strategy a **physical basis**: the spread mean-reverts because re
 
 ### Flowsheet Topology
 
-An atmospheric crude distillation unit (CDU) was built from scratch in Aspen HYSYS V15 using the Peng-Robinson equation of state and a manually characterised WTI Light crude assay sourced from ExxonMobil's published assay library.
+An atmospheric crude distillation unit (CDU) was built from scratch in **Aspen HYSYS V15** using the Peng-Robinson equation of state and a manually characterised WTI Light crude assay sourced from ExxonMobil's published assay library.
 
 ### Crude Assay
 
@@ -51,6 +71,7 @@ TBP distillation curve entered manually from the published assay (8 atmospheric 
 
 | Parameter | Value |
 |-----------|-------|
+| Software | Aspen HYSYS V15 |
 | Fluid package | Peng-Robinson |
 | Feed conditions | 25°C, 200 kPa, 10,000 kg/h |
 | Column stages | 28 (top-down numbering) |
@@ -72,22 +93,19 @@ TBP distillation curve entered manually from the published assay (8 atmospheric 
 | Cooling Water | 0.0203 MMGAL/h ($2.436/h) |
 | **Utility cost per barrel** | **$0.112/bbl** |
 
-Utility cost per barrel derived as: total utility cost per hour ($8.29/h) ÷ crude throughput in bbl/h (74.3 bbl/h at 790.2 kg/m³ density, 6.2898 bbl/m³).
+Utility cost per barrel derived as: total utility cost per hour ($8.29/h) ÷ crude throughput in bbl/h (74.3 bbl/h at 790.2 kg/m³ density, 6.2898 bbl/m³). Full export available in `hysys/hysys_economics.xlsx`.
 
-### HYSYS-Derived Yield Fractions (direct Python inputs)
+### HYSYS-Derived Constants (single source of truth: `src/signal_generator.py`)
 
 ```python
-# Basis: crude feed only (9,336 kg/h, excluding steam inputs)
-yield_offgas         = 268.1  / 9336   # 0.0287
-yield_naphtha        = 319.7  / 9336   # 0.0342  → maps to RBOB (RB=F)
-yield_kerosene       = 1096.0 / 9336   # 0.1174  → jet fuel (informational)
-yield_diesel         = 1142.0 / 9336   # 0.1223  → maps to Heating Oil (HO=F)
-yield_ago            = 1172.0 / 9336   # 0.1255  → atmospheric gas oil
-yield_residue        = 5353.0 / 9336   # 0.5733  → atmospheric residue
-utility_cost_per_bbl = 0.112           # USD/bbl (HYSYS Activated Economics)
+yield_naphtha         = 319.7  / 9336   # 0.0342  → priced, maps to RBOB (RB=F)
+yield_kerosene        = 1096.0 / 9336   # 0.1174  → excluded, no liquid futures proxy
+yield_diesel          = 1142.0 / 9336   # 0.1223  → priced, maps to Heating Oil (HO=F)
+yield_ago             = 1172.0 / 9336   # 0.1255  → excluded, no liquid futures proxy
+yield_residue         = 5353.0 / 9336   # 0.5733  → excluded, no liquid futures proxy
+utility_cost_per_bbl  = 0.112           # USD/bbl
+priced_yield_fraction = yield_naphtha + yield_diesel   # 0.1565
 ```
-
-> **Note:** Naphtha yield (3.4%) reflects a conservative column operating point (reflux ratio 2.0, condenser temperature 40°C). The column was converged with side draw flow specs rather than overhead distillate rate specs — a deliberate choice to achieve numerical convergence, with yield fractions reported from the converged solution.
 
 ---
 
@@ -98,107 +116,119 @@ utility_cost_per_bbl = 0.112           # USD/bbl (HYSYS Activated Economics)
 | Instrument | Ticker | Unit | Role |
 |------------|--------|------|------|
 | WTI Crude Oil | `CL=F` | $/bbl | Feedstock cost |
-| RBOB Gasoline | `RB=F` | $/gallon | Naphtha/gasoline proxy |
-| Heating Oil | `HO=F` | $/gallon | Diesel proxy |
+| RBOB Gasoline | `RB=F` | $/gallon | Naphtha proxy (priced) |
+| Heating Oil | `HO=F` | $/gallon | Diesel proxy (priced) |
 
-Data sourced via `yfinance`, January 2019 – January 2024 (5-year daily).
+5-year daily data, January 2019 – January 2024, via `yfinance`.
 
-### The Crack Spread Formula
+### The Spread Formula
 
 ```python
-# Unit conversion: RBOB and HO quoted $/gallon → ×42 converts to $/bbl
-margin = (yield_naphtha * RBOB    * 42
-        + yield_diesel  * HeatOil * 42
-        - WTI
+spread = (yield_naphtha * RBOB * 42
+        + yield_diesel  * HO   * 42
+        - priced_yield_fraction * WTI
         - utility_cost_per_bbl)
 ```
 
-Compare against the generic 3:2:1 spread — plotted in `02_spread_construction.ipynb` — to illustrate the differentiator visually.
+RBOB and Heating Oil are quoted $/gallon; ×42 converts to $/bbl to match WTI.
+
+### Train / Test Split
+
+A chronological 70/30 split is used. **All parameter selection — stationarity tests, OU process fitting, and entry threshold selection — is performed on the training set only.** The test set is held out completely and used solely to report final out-of-sample performance.
 
 ### Statistical Framework
 
-**Step 1 — Stationarity validation:**
+**Stationarity validation (train set):**
 
 | Test | Null Hypothesis | Desired Result |
 |------|----------------|----------------|
 | ADF (Augmented Dickey-Fuller) | Unit root exists (non-stationary) | p-value < 0.05 → reject H₀ |
 | KPSS | Series is stationary | p-value > 0.05 → fail to reject H₀ |
 
-Both tests required to confirm mean reversion is a real, persistent property of the spread.
-
-**Step 2 — Ornstein-Uhlenbeck process fit (MLE):**
-
+**Ornstein-Uhlenbeck process fit (MLE, train set only):**
 
 | Parameter | Description |
 |-----------|-------------|
 | θ (theta) | Mean reversion speed (per day) |
-| μ (mu) | Long-run equilibrium margin ($/bbl) |
+| μ (mu) | Long-run equilibrium spread ($/bbl) |
 | σ (sigma) | Volatility ($/bbl/day⁰·⁵) |
 | Half-life | ln(2)/θ — practical trading horizon in days |
 
-**Step 3 — Z-score signal generation:**
+Fitted parameters are fixed after Notebook 3 and applied unchanged to the test set — never re-fitted on out-of-sample data.
+
+**Entry threshold selection (train set only):**
+
+A sensitivity sweep across thresholds (0.5σ–2.5σ) is run on train data only, selecting the threshold with the best in-sample Sharpe ratio. This threshold is then fixed and applied to the test set without modification.
+
+### Trading Signal
 
 ```python
-lookback        = 252   # 1 year rolling window
-entry_threshold = 1.5   # standard deviations from mean
-exit_threshold  = 0.0   # exit when spread reverts to mean
-
-# Long  when z < −1.5: margin too compressed, buy the spread
-# Short when z > +1.5: margin too wide, sell the spread
-# Exit  when |z| < 0.0: spread has reverted
+exit_threshold = 0.0   # exit when spread reverts to mean
+# Long  when z < −entry_threshold: spread compressed, buy
+# Short when z > +entry_threshold: spread wide, sell
 ```
+
+### Look-Ahead Bias Handling
+
+All PnL is computed with the signal lagged by one trading day (`signal.shift(1)`): a position entered on day *t* is based on the z-score computed from the closing price on day *t−1*, and the trade is assumed executed at day *t*'s close. **Trades are entered the day after the close used to compute the signal** — the strategy never acts on information not yet available at the time of the decision.
 
 ### Operational Inertia Friction Term
 
-A refinery cannot instantly change its yield slate — feed heater temperatures, column draw stages, and side stripper steam rates require time to adjust. A **minimum holding period of 5 days** is enforced between signal changes in the backtest. This constraint is derived directly from the HYSYS process simulation and is the key feature distinguishing this backtest from a generic statistical arbitrage model.
+A refinery cannot instantly change its yield slate — feed heater temperatures, column draw stages, and side stripper steam rates require days of operational adjustment. A **minimum 5-day holding period** is enforced between signal changes, derived directly from the HYSYS process simulation. This is the key feature distinguishing this backtest from a generic statistical arbitrage model.
 
 ```python
 MIN_HOLDING_DAYS = 5   # derived from HYSYS process engineering constraints
 ```
 
-### Backtest Parameters
+### Transaction Cost Assumption
+
+**$0.05/bbl per trade.** NYMEX RBOB and Heating Oil futures contracts are sized at 42,000 gallons (1,000 bbl) per contract. Typical bid/ask spreads on front-month RBOB and HO run roughly $0.0005–$0.001/gallon (~$0.02–$0.04/bbl-equivalent) in normal liquidity; WTI futures (CL) typically show a one-tick ($0.01/bbl) spread. Combining the round-trip cost of establishing offsetting positions across three legs (crude + two product legs) plus modest execution slippage, **$0.05/bbl is a deliberately conservative estimate** intended to avoid overstating profitability. Exchange/clearing fees (~$1–2/contract, ~$0.001–0.002/bbl) and margin financing costs are not separately modelled — immaterial at this scale.
+
+### Benchmark
+
+The strategy is compared against the **generic 3:2:1 crack spread**, traded with identical mechanics (same z-score lookback, same entry threshold, same holding period, same transaction cost) to isolate the effect of the HYSYS-derived weighting itself, not differences in trading logic.
+
+```python
+crack_321 = (2/3) * RBOB * 42 + (1/3) * HO * 42 - WTI
+```
+
+---
+
+## Results
+
+*Generated by running all 4 notebooks in sequence — paste output from Notebook 4's final cell here.*
+
+| Period | Strategy | Total Return ($/bbl) | Sharpe Ratio | Annualised Vol ($/bbl) | Max Drawdown ($/bbl) | Win Rate | Num Trades | Turnover |
+|--------|----------|----------------------|--------------|-------------------------|------------------------|----------|------------|----------|
+| Train (in-sample) | HYSYS partial spread | — | — | — | — | — | — | — |
+| Train (in-sample) | 3:2:1 benchmark | — | — | — | — | — | — | — |
+| Test (out-of-sample) | HYSYS partial spread | — | — | — | — | — | — | — |
+| Test (out-of-sample) | 3:2:1 benchmark | — | — | — | — | — | — | — |
+
+**Key OU parameters (train set):**
 
 | Parameter | Value |
 |-----------|-------|
-| Data period | Jan 2019 – Jan 2024 |
-| Lookback window | 252 trading days |
-| Entry threshold | ±1.5σ |
-| Exit threshold | 0.0σ |
-| Transaction cost | $0.05/bbl per trade |
-| Minimum holding period | 5 days (operational inertia) |
-
-### Performance Results
-
-| Metric | Value |
-|--------|-------|
-| Sharpe Ratio | *run notebooks* |
-| Total Return | *run notebooks* |
-| Max Drawdown | *run notebooks* |
-| Win Rate | *run notebooks* |
-| OU Half-life | *run notebooks* |
-| Number of Trades | *run notebooks* |
+| θ (mean reversion speed) | — |
+| μ (long-run mean, $/bbl) | — |
+| σ (volatility) | — |
+| Half-life (trading days) | — |
+| Selected entry threshold | — |
 
 ---
 
 ## Setup
 
-### Install dependencies
-
 ```bash
 pip install -r requirements.txt
 ```
 
-### Run notebooks in order
+Run notebooks in order from inside the `notebooks/` folder:
 
-```bash
-cd notebooks
-jupyter notebook
-```
-
-1. **`01_data_pipeline.ipynb`** — pulls WTI/RBOB/HeatOil daily closes from Yahoo Finance, saves `data/raw_prices.csv`
-2. **`02_spread_construction.ipynb`** — constructs HYSYS-weighted margin series and 3:2:1 benchmark, saves `data/spread_data.csv`
-3. **`03_stationarity_ou_fit.ipynb`** — ADF/KPSS stationarity tests, MLE OU parameter estimation, z-score generation, saves `data/spread_with_zscore.csv` and `data/ou_parameters.csv`
-4. **`04_backtest.ipynb`** — signal generation, operational inertia filter, PnL calculation, performance metrics, sensitivity analysis, saves `data/backtest_results.csv`
+1. **`01_data_pipeline.ipynb`** — pulls price data from Yahoo Finance
+2. **`02_spread_construction.ipynb`** — builds the HYSYS-weighted partial spread + 3:2:1 benchmark
+3. **`03_stationarity_ou_fit.ipynb`** — train/test split, stationarity tests, OU fit, threshold selection (train only)
+4. **`04_backtest.ipynb`** — applies fixed parameters to full series, reports train vs test, HYSYS vs benchmark
 
 ---
 
@@ -222,7 +252,7 @@ jupyter notebook
 
 | Tool | Purpose |
 |------|---------|
-| Aspen HYSYS V15| Atmospheric CDU process simulation, yield extraction, economics |
+| Aspen HYSYS V15 | Atmospheric CDU process simulation, yield extraction, economics |
 | Python 3.x | Strategy implementation |
 | pandas / numpy | Data manipulation and numerical computing |
 | statsmodels | ADF/KPSS stationarity tests |
@@ -233,9 +263,14 @@ jupyter notebook
 
 ---
 
+## Acknowledgements
+
+Methodology reviewed by a mentor with a quantitative finance background (AQR, Point72, Balyasny). Key revisions made in response to review: corrected the spread formula from a full-barrel-cost margin to an internally-consistent partial product spread (see Methodology Note above), added a chronological train/test split with all parameters fixed on training data only, added a benchmark comparison against the generic 3:2:1 spread, and added explicit documentation of look-ahead bias handling and transaction cost assumptions.
+
+---
+
 ## Author
 
-Chemical Engineering student, University of Nottingham (entering Year 3).
-Building a quant finance portfolio that combines process engineering domain knowledge with systematic trading methodology, targeting research and trading roles at energy-focused systematic funds.
+Chemical Engineering student, University of Nottingham (entering Year 3). Building a quant finance portfolio that combines process engineering domain knowledge with systematic trading methodology, targeting research and trading roles at energy-focused systematic funds.
 
 Application cycle: Autumn 2026 — Citadel, Optiver, Jane Street, G-Research, Qube/Man Group, Winton.
