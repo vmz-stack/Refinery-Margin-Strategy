@@ -200,10 +200,10 @@ crack_321 = (2/3) * RBOB * 42 + (1/3) * HO * 42 - WTI
 
 | Period | Strategy | Total Return ($/bbl) | Sharpe Ratio | Annualised Vol ($/bbl) | Max Drawdown ($/bbl) | Win Rate | Num Trades | Turnover |
 |--------|----------|----------------------|--------------|-------------------------|------------------------|----------|------------|----------|
-| Train (in-sample) | HYSYS partial spread | — | — | — | — | — | — | — |
-| Train (in-sample) | 3:2:1 benchmark | — | — | — | — | — | — | — |
-| Test (out-of-sample) | HYSYS partial spread | — | — | — | — | — | — | — |
-| Test (out-of-sample) | 3:2:1 benchmark | — | — | — | — | — | — | — |
+| Train (in-sample) | HYSYS partial spread | 6.29 | 0.42 | 6.06 | -5.79 | 30.2% | 5 | 0.0175 |
+| Train (in-sample) | 3:2:1 benchmark | -38.89 | -0.57 | 27.52 | -70.83 | 24.8% | 0 | 0.0016 |
+| Test (out-of-sample) | HYSYS partial spread | 4.27 | 0.89 | 3.2 | -2.11 | 18.8% | 2 | 0.0106 |
+| Test (out-of-sample) | 3:2:1 benchmark | 44.21 | 0.89 | 32.96 | -23.91 | 37.3% | 3 | 0.0159 |
 
 **Key OU parameters (train set):**
 
