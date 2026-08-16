@@ -1,136 +1,91 @@
 """
 signal_generator.py
-Reusable signal generation and backtesting functions for the
-physically-grounded crack spread trading strategy.
- 
-Source: Aspen HYSYS CDU simulation, WTI Light crude assay
-        ExxonMobil EMTEC Reference WTIL220Y (October 2020)
- 
-METHODOLOGY NOTE — Partial Product Spread (not full refinery margin):
-This strategy explicitly prices only the naphtha and diesel revenue
-streams, which map to liquid, exchange-traded daily futures (RBOB,
-Heating Oil). Kerosene, AGO, and residue are excluded because no
-equivalent liquid daily futures series exists for them on yfinance —
-estimating their value via an assumed discount factor would introduce
-an unverified assumption that undermines the project's real-data
-premise. Crude cost is therefore scaled proportionally to only the
-fraction of the barrel represented by naphtha + diesel, keeping the
-spread economically internally consistent (we only "buy" the crude
-fraction we are pricing the output of).
+Shared logic for the refinery margin statistical arbitrage project.
+
+Source: Aspen HYSYS V15 CDU simulation, ExxonMobil WTI Light assay
+        (EMTEC Reference WTIL220Y, October 2020)
+
+METHODOLOGY - Partial Product Spread:
+Only naphtha and diesel are priced, since they map to liquid daily
+futures (RBOB, Heating Oil). Kerosene, AGO and residue have no
+equivalent liquid series and are excluded rather than estimated with
+an assumed discount. Crude cost is therefore scaled to the fraction
+of the barrel actually being priced, so the spread measures margin on
+the modelled output only.
 """
- 
+
 import numpy as np
 import pandas as pd
 from scipy.optimize import minimize
- 
- 
+
+
 # ============================================================
 # HYSYS-DERIVED CONSTANTS
+# Basis: 9,336 kg/h crude feed
 # ============================================================
- 
-YIELD_NAPHTHA        = 319.7  / 9336   # 0.0342 — maps to RBOB (RB=F)
-YIELD_KEROSENE       = 1096.0 / 9336   # 0.1174 — excluded (no liquid futures proxy)
-YIELD_DIESEL         = 1142.0 / 9336   # 0.1223 — maps to Heating Oil (HO=F)
-YIELD_AGO            = 1172.0 / 9336   # 0.1255 — excluded (no liquid futures proxy)
-YIELD_RESIDUE        = 5353.0 / 9336   # 0.5733 — excluded (no liquid futures proxy)
-UTILITY_COST_PER_BBL = 0.112           # USD/bbl (HYSYS Activated Economics)
-GALLONS_PER_BARREL   = 42
- 
-# Fraction of the barrel actually priced in this strategy
-PRICED_YIELD_FRACTION = YIELD_NAPHTHA + YIELD_DIESEL   # = 0.1565
- 
- 
+
+CRUDE_FEED_KGH = 9336.0
+
+YIELD_NAPHTHA  = 319.7  / CRUDE_FEED_KGH   # 0.0342 - priced via RBOB
+YIELD_KEROSENE = 1096.0 / CRUDE_FEED_KGH   # 0.1174 - excluded
+YIELD_DIESEL   = 1142.0 / CRUDE_FEED_KGH   # 0.1223 - priced via Heating Oil
+YIELD_AGO      = 1172.0 / CRUDE_FEED_KGH   # 0.1255 - excluded
+YIELD_RESIDUE  = 5353.0 / CRUDE_FEED_KGH   # 0.5733 - excluded
+
+UTILITY_COST_PER_BBL  = 0.112              # $/bbl, HYSYS Activated Economics
+GALLONS_PER_BARREL    = 42
+PRICED_YIELD_FRACTION = YIELD_NAPHTHA + YIELD_DIESEL   # 0.1565
+
+
+# ============================================================
+# SPREAD CONSTRUCTION
+# ============================================================
+
 def compute_hysys_margin(wti, rbob, heating_oil):
     """
-    Compute the HYSYS-weighted PARTIAL PRODUCT SPREAD.
- 
-    This is NOT a full refinery margin. It isolates the naphtha and
-    diesel revenue stream against a proportional crude cost, scaled
-    by their combined HYSYS yield fraction (~15.65% of the barrel).
-    Kerosene, AGO, and residue are deliberately excluded — see module
-    docstring for rationale.
- 
-    Parameters
-    ----------
-    wti         : pd.Series — WTI crude price in $/bbl
-    rbob        : pd.Series — RBOB gasoline price in $/gallon
-    heating_oil : pd.Series — Heating oil price in $/gallon
- 
-    Returns
-    -------
-    pd.Series — Partial product spread in $/bbl
+    HYSYS-weighted partial product spread, $/bbl.
+
+    Crude cost is scaled by PRICED_YIELD_FRACTION rather than charging a
+    full barrel against a partial output - see module docstring.
     """
     rbob_bbl = rbob * GALLONS_PER_BARREL
     ho_bbl   = heating_oil * GALLONS_PER_BARREL
- 
-    spread = (
+    return (
           YIELD_NAPHTHA * rbob_bbl
         + YIELD_DIESEL  * ho_bbl
-        - PRICED_YIELD_FRACTION * wti      # crude cost scaled to priced fraction only
+        - PRICED_YIELD_FRACTION * wti
         - UTILITY_COST_PER_BBL
     )
-    return spread
- 
- 
+
+
 def compute_generic_321_spread(wti, rbob, heating_oil):
-    """
-    Compute the generic 3:2:1 crack spread for benchmarking.
- 
-    This IS a full-barrel-cost convention (standard industry shorthand:
-    3 barrels crude → 2 barrels gasoline + 1 barrel heating oil), used
-    here purely as the performance benchmark our strategy is compared
-    against — not as an economically literal full margin either.
- 
-    Parameters
-    ----------
-    wti         : pd.Series — WTI crude price in $/bbl
-    rbob        : pd.Series — RBOB gasoline price in $/gallon
-    heating_oil : pd.Series — Heating oil price in $/gallon
- 
-    Returns
-    -------
-    pd.Series — 3:2:1 crack spread in $/bbl
-    """
+    """Conventional 3:2:1 crack spread, $/bbl. Benchmark only."""
     rbob_bbl = rbob * GALLONS_PER_BARREL
     ho_bbl   = heating_oil * GALLONS_PER_BARREL
     return (2/3) * rbob_bbl + (1/3) * ho_bbl - wti
- 
- 
-def compute_zscore(series, lookback=252):
-    """
-    Compute rolling z-score.
- 
-    Parameters
-    ----------
-    series   : pd.Series
-    lookback : int — rolling window in days (default 252 = 1 year)
- 
-    Returns
-    -------
-    pd.Series — z-score
-    """
+
+
+def compute_zscore(series, lookback=126):
+    """Rolling z-score. Strictly backward-looking at every point."""
     mean = series.rolling(lookback).mean()
     std  = series.rolling(lookback).std()
     return (series - mean) / std
- 
- 
-def generate_signals(zscore, entry_threshold=1.5, exit_threshold=0.0):
+
+
+# ============================================================
+# SIGNAL GENERATION
+# ============================================================
+
+def generate_signals(zscore, entry_threshold=1.75, exit_threshold=0.5):
     """
-    Generate trading signals from z-score.
- 
-    Long  when z < -entry_threshold
-    Short when z >  entry_threshold
-    Exit  when |z| < exit_threshold
- 
-    Parameters
-    ----------
-    zscore          : pd.Series
-    entry_threshold : float (default 1.5)
-    exit_threshold  : float (default 0.0)
- 
-    Returns
-    -------
-    pd.Series — signals: 1 (long), -1 (short), 0 (flat)
+    Long when z < -entry, short when z > +entry.
+
+    Positions close once the spread has reverted to within exit_threshold
+    of the mean, rather than waiting for full reversion to zero. With a
+    ~20-day half-life, waiting for z = 0 holds positions for months and
+    produces too few trades to evaluate.
+
+    Returns a Series of 1 (long), -1 (short), 0 (flat).
     """
     signals  = pd.Series(0, index=zscore.index)
     position = 0
@@ -144,152 +99,115 @@ def generate_signals(zscore, entry_threshold=1.5, exit_threshold=0.0):
                 position = 1
             elif z > entry_threshold:
                 position = -1
-        elif position == 1:
-            if z >= exit_threshold:
-                position = 0
-        elif position == -1:
-            if z <= -exit_threshold:
-                position = 0
+        elif position == 1 and z >= -exit_threshold:
+            position = 0
+        elif position == -1 and z <= exit_threshold:
+            position = 0
         signals.iloc[i] = position
     return signals
- 
- 
+
+
 def apply_holding_period(signals, min_hold=5):
     """
-    Apply operational inertia friction term.
- 
-    Enforces a minimum holding period between signal changes,
-    derived from HYSYS process engineering constraints
-    (refinery yield slate cannot be changed instantaneously).
- 
-    Parameters
-    ----------
-    signals  : pd.Series — raw signals (1, -1, 0)
-    min_hold : int — minimum days between signal changes (default 5)
- 
-    Returns
-    -------
-    pd.Series — filtered signals
+    Operational inertia friction term.
+
+    A refinery cannot change its yield slate instantaneously - heater
+    duty, draw rates and stripper steam take days to stabilise. Signal
+    changes within min_hold days of the previous change are suppressed.
     """
-    held             = signals.copy()
-    last_change_idx  = -min_hold
-    prev_signal      = 0
+    held        = signals.copy()
+    last_change = -min_hold
+    prev        = 0
     for i in range(len(signals)):
-        if signals.iloc[i] != prev_signal:
-            if (i - last_change_idx) >= min_hold:
-                held.iloc[i]    = signals.iloc[i]
-                last_change_idx = i
-                prev_signal     = signals.iloc[i]
-            else:
-                held.iloc[i] = prev_signal
+        if signals.iloc[i] != prev and (i - last_change) >= min_hold:
+            held.iloc[i] = signals.iloc[i]
+            last_change  = i
+            prev         = signals.iloc[i]
         else:
-            held.iloc[i] = prev_signal
+            held.iloc[i] = prev
     return held
- 
- 
+
+
+# ============================================================
+# ORNSTEIN-UHLENBECK ESTIMATION
+# ============================================================
+
 def ou_neg_log_likelihood(params, X, dt=1.0):
-    """Negative log-likelihood for OU process (for MLE fitting)."""
+    """Negative log-likelihood using the exact Gaussian transition density."""
     theta, mu, sigma = params
     if theta <= 0 or sigma <= 0:
         return 1e10
-    n        = len(X) - 1
-    X_t      = X[:-1]
-    X_t1     = X[1:]
-    exp_decay = np.exp(-theta * dt)
-    exp_val   = X_t * exp_decay + mu * (1 - exp_decay)
+    n         = len(X) - 1
+    X_t, X_t1 = X[:-1], X[1:]
+    decay     = np.exp(-theta * dt)
+    exp_val   = X_t * decay + mu * (1 - decay)
     var       = (sigma**2 / (2 * theta)) * (1 - np.exp(-2 * theta * dt))
     if var <= 0:
         return 1e10
-    ll = (-n / 2) * np.log(2 * np.pi * var) \
-         - np.sum((X_t1 - exp_val)**2) / (2 * var)
-    return -ll
- 
- 
+    return -((-n / 2) * np.log(2 * np.pi * var)
+             - np.sum((X_t1 - exp_val)**2) / (2 * var))
+
+
 def fit_ou_process(series):
     """
-    Fit Ornstein-Uhlenbeck process to a time series using MLE.
- 
-    Parameters
-    ----------
-    series : pd.Series or np.ndarray
- 
-    Returns
-    -------
-    dict with keys: theta, mu, sigma, half_life
+    Fit dX = theta(mu - X)dt + sigma*dW by maximum likelihood.
+
+    Returns theta, mu, sigma, half-life and the stationary standard
+    deviation sigma/sqrt(2*theta).
     """
-    X  = np.array(series)
-    x0 = [0.1, X.mean(), X.std()]
+    X = np.asarray(series, dtype=float)
     result = minimize(
         ou_neg_log_likelihood,
-        x0=x0,
+        x0=[0.1, X.mean(), X.std()],
         args=(X,),
         method='L-BFGS-B',
         bounds=[(1e-6, 10), (None, None), (1e-6, None)]
     )
     theta, mu, sigma = result.x
     return {
-        'theta':     theta,
-        'mu':        mu,
-        'sigma':     sigma,
-        'half_life': np.log(2) / theta,
-        'converged': result.success
+        'theta':          theta,
+        'mu':             mu,
+        'sigma':          sigma,
+        'half_life':      np.log(2) / theta,
+        'stationary_sd':  sigma / np.sqrt(2 * theta),
+        'converged':      result.success
     }
- 
- 
-def compute_pnl(signals, margin_series, transaction_cost=0.05):
+
+
+# ============================================================
+# BACKTESTING
+# ============================================================
+
+def compute_pnl(signals, spread, transaction_cost=0.05):
     """
-    Compute daily PnL and equity curve.
- 
-    Signal is applied with a 1-day lag (signals.shift(1)) to avoid
-    look-ahead bias: a trade is entered the day AFTER the close used
-    to compute that day's z-score and signal, not on the same close.
- 
-    Parameters
-    ----------
-    signals          : pd.Series — position signals (1, -1, 0)
-    margin_series    : pd.Series — margin in $/bbl
-    transaction_cost : float — cost per trade in $/bbl (default 0.05)
- 
-    Returns
-    -------
-    pd.DataFrame with columns: pnl_gross, pnl_net, equity_curve
+    Daily PnL with a one-day signal lag.
+
+    signals.shift(1) means a position established from day t-1's close
+    earns day t's move - the strategy never trades on information that
+    was not available at the time of the decision.
     """
-    result               = pd.DataFrame(index=signals.index)
-    result['signal']     = signals
-    result['margin']     = margin_series
-    result['margin_chg'] = margin_series.diff()
-    result['pnl_gross']  = signals.shift(1) * result['margin_chg']   # 1-day lag — no look-ahead
-    result['trade_flag'] = signals.diff().abs().clip(0, 1)
-    result['pnl_net']    = result['pnl_gross'] - result['trade_flag'] * transaction_cost
-    result['equity_curve'] = result['pnl_net'].cumsum()
-    return result
- 
- 
-def compute_performance_metrics(pnl_series, equity_curve):
-    """
-    Compute standard performance metrics.
- 
-    Parameters
-    ----------
-    pnl_series    : pd.Series — daily net PnL
-    equity_curve  : pd.Series — cumulative PnL
- 
-    Returns
-    -------
-    dict of performance metrics
-    """
-    daily_mean   = pnl_series.mean()
-    daily_std    = pnl_series.std()
-    sharpe       = (daily_mean / daily_std) * np.sqrt(252) if daily_std > 0 else 0
-    max_drawdown = (equity_curve - equity_curve.cummax()).min()
-    win_rate     = (pnl_series > 0).mean()
-    annualised_vol = daily_std * np.sqrt(252)
-    return {
-        'total_return':    pnl_series.sum(),
-        'sharpe_ratio':    sharpe,
-        'max_drawdown':    max_drawdown,
-        'win_rate':        win_rate,
-        'daily_mean':      daily_mean,
-        'daily_std':       daily_std,
-        'annualised_vol':  annualised_vol
+    out = pd.DataFrame(index=signals.index)
+    out['signal']       = signals
+    out['pnl_gross']    = signals.shift(1) * spread.diff()
+    out['trade']        = signals.diff().abs().clip(0, 1)
+    out['pnl_net']      = out['pnl_gross'] - out['trade'] * transaction_cost
+    out['equity_curve'] = out['pnl_net'].cumsum()
+    return out
+
+
+def compute_performance_metrics(pnl, trades=None, n_days=None):
+    """Standard performance metrics. Sharpe annualised at sqrt(252)."""
+    eq = pnl.cumsum()
+    sd = pnl.std()
+    m = {
+        'total_return':   pnl.sum(),
+        'sharpe_ratio':   (pnl.mean() / sd) * np.sqrt(252) if sd > 0 else 0.0,
+        'annualised_vol': sd * np.sqrt(252),
+        'max_drawdown':   (eq - eq.cummax()).min(),
+        'win_rate':       (pnl > 0).mean()
     }
+    if trades is not None:
+        m['num_trades'] = int(trades.sum() / 2)
+        if n_days:
+            m['turnover'] = trades.sum() / n_days
+    return m
